@@ -1,0 +1,367 @@
+Project: Real-time Anomaly Security Detection System
+
+
+Overview
+- Goal: Build a lightweight, scalable security app that highlights campus-specific risks and triggers alerts only when genuinely unusual activity occurs.
+- Context: Collaboration with the university’s IT department. Backend collects and streams live network logs via Docker; frontend visualizes threats on an interactive HTML map.
+- Approach: Python + GenAI + data analytics pipeline identifies suspicious IP behavior, clusters traffic by region, and reduces noise via meaningful alerts.
+
+End Goal (Narrative)
+We are developing a real-time anomaly security detection system for our class in collaboration with the university’s IT department. The backend team built a Docker-based pipeline to collect and stream live network logs, while the frontend team created an interactive HTML map to visualize threats geographically. Using Python, GenAI, and data analytics, our system identifies suspicious IP behavior, clusters traffic by region, and reduces noise through meaningful alerts instead of overwhelming individual log events. The end goal is to package this as a lightweight, scalable security app that highlights campus-specific risks and triggers alerts only when genuinely unusual activity occurs.
+
+Architecture
+- Data Source: Live network logs streamed into the app (Docker-based pipeline assumed; outside this repo).
+- Backend: Python Flask server (`server.py`) serving map data, alerts, metrics, and IP info.
+- Storage: `events_persist.json` for mock or persisted event data; MaxMind `GeoLite2-City.mmdb` for geolocation lookup.
+- Frontend: HTML templates with Bootstrap dark theme (`templates/*.html`), Leaflet map, Chart.js KPIs, and custom JS for map and alerts (`static/js/*`).
+- Assets: CSS overrides in `static/css/style.css`.
+
+Key Files
+- `server.py`: Flask app endpoints and data logic.
+- `simulator.py`: Optional event generation/simulation.
+- `static/js/map.js`: Map initialization, data fetch, drill-down behavior, fan-out visualization, map locking.
+- `static/js/alerts.js`: Alerts fetching, filtering, sorting, pagination, and actions.
+- `static/css/style.css`: Dark mode, layout, and readability styles.
+- `templates/base.html`, `templates/dashboard.html`: Page structure and the dashboard view.
+- `events_persist.json`: Example/persisted events used by the server.
+- `GeoLite2-City.mmdb`: City-level geolocation database (binary).
+
+Backend: Flask Server (`server.py`) Responsibilities
+- `/data`: Returns FeatureCollections for map at levels `continent|region|country|city|point` with properties such as `count`, `allowed`, `blocked`, `top_ips`.
+- `/alerts`: Returns recent alerts; supports `aggregate=ip` grouping and includes `risk_score` and `threat_level`.
+- `/metrics`: Returns KPIs (`total_events`, `blocked_events`, `unique_source_ips`, `threat_levels`, `top_signatures`).
+- `/ipinfo`: Returns detailed info for a specific IP, enriched with basic hostname/ISP/ASN heuristics.
+- `/vulnerabilities`: Aggregates top blocked signatures over a timeframe.
+- `/simulate`: Stub endpoint to trigger simulated attack scenarios (coordinates with `simulator.py`).
+- `/export`: Exports events as CSV or JSON for a selected timeframe.
+
+Snippet (illustrative excerpt):
+"""
+from flask import Flask, jsonify, request
+import json
+
+app = Flask(__name__)
+
+@app.get('/data')
+def data():
+    level = request.args.get('level', 'city')
+    # Build a GeoJSON FeatureCollection with properties including counts/events
+    return jsonify({
+        "type": "FeatureCollection",
+        "features": []  # populated from events_persist.json
+    })
+
+@app.get('/alerts')
+def alerts():
+    # Return a list of alerts with fields: time, ip, level, message
+    return jsonify({"alerts": [], "total": 0})
+"""
+
+Frontend: Map (`static/js/map.js`) Summary
+- Initializes Leaflet with dark tiles (CartoDB Dark Matter); default view centered over North America with `zoom: 5`.
+- Drill-down order: continent → region → country → city → point.
+- Point-level behavior: if `properties.events[]` present, renders individual events; otherwise generates jittered points (spiral fan-out) based on aggregate `count`.
+- `window.mapLocked`: pauses auto-refresh while drilled down; time range and level controls respect lock.
+- Breadcrumb navigation enables stepping back through levels; “Refresh” resets to initial state; “Show All Points” switches to point view and locks.
+
+Snippet (illustrative excerpt):
+"""
+const initialState = { center: [40, -95], zoom: 5 };
+let mapLocked = false;
+
+function spreadAround(lat, lng, count) {
+  const pts = [];
+  const angleStep = (2 * Math.PI) / Math.max(count, 1);
+  const radius = 0.05; // degrees
+  for (let i = 0; i < count; i++) {
+    const a = i * angleStep;
+    const jitterLat = lat + Math.sin(a) * radius;
+    const jitterLng = lng + Math.cos(a) * radius;
+    pts.push([jitterLat, jitterLng]);
+  }
+  return pts;
+}
+
+function renderGeo(featureCollection) {
+  featureCollection.features.forEach(f => {
+    const { lat, lng, count, events } = f.properties;
+    if (events && events.length) {
+      events.forEach(ev => L.circleMarker([ev.lat, ev.lng], { radius: 4 }).addTo(map));
+    } else {
+      const pts = spreadAround(lat, lng, count || 1);
+      pts.forEach(p => L.circleMarker(p, { radius: 3 }).addTo(map));
+    }
+  });
+}
+"""
+
+Frontend: Alerts (`static/js/alerts.js`) Summary
+- Fetches `/alerts` (raw or `aggregate=ip`), supports search, sort (time/ip/severity/count), and level filter (`high|medium|low|all`).
+- Pagination defaults to 18 rows per page in the current code.
+- Actions: open rich IP Details modal (tabbed), locate on map, simulate block/allow badge updates.
+- Side cards: Top vulnerabilities (from `/vulnerabilities`) and Top offenders (from `/alerts?aggregate=ip`).
+
+Snippet (illustrative excerpt):
+"""
+const alertsPerPage = 25;
+let currentPage = 1;
+
+function renderAlerts(alerts) {
+  const tbody = document.getElementById('alertsBody');
+  tbody.innerHTML = '';
+  alerts.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${a.time}</td><td>${a.ip}</td><td>${a.level}</td><td>${a.message}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+"""
+
+Styling: Dark UI (`static/css/style.css`) Summary
+- High-contrast colors for KPIs and badges; dark Leaflet basemap; transparent `.leaflet-container` to eliminate white strip.
+- Flex layout ensures the map and alerts cards fill available height; `.map-container`, `#map`, `.map-canvas` set to `height: 100%`.
+
+Snippet (illustrative excerpt):
+"""
+:root {
+  --bg: #121212;
+  --fg: #e6e6e6;
+  --accent: #4db6ff;
+}
+body { background: var(--bg); color: var(--fg); }
+.leaflet-container { background: transparent; }
+.map-container, #map, .map-canvas { height: 100%; }
+"""
+
+Templates (`templates/dashboard.html`) Snippet
+- Map and alerts laid out with Bootstrap cards.
+- Controls for filters and pagination.
+
+Snippet (illustrative excerpt):
+"""
+<div class="row">
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-body p-0">
+        <div class="map-container">
+          <div id="map" class="map-canvas"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-body">
+        <table class="table table-dark table-hover">
+          <tbody id="alertsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+Detection Logic (Conceptual → Current Code)
+- Geolocation: Uses `geoip2` if installed and `GeoLite2-City.mmdb` present; otherwise falls back to prefix-based geo mapping for campus and global regions.
+- Risk Scoring: `calculate_risk_score()` assigns a risk score and `threat_level` per IP based on failed login patterns, international IPs, unique signatures, and known malicious lists.
+- Aggregation: `/data` aggregates by selected level and computes ratios, top IPs, and simple suspicious flags.
+- Noise Reduction: Alerts can be aggregated by IP; UI emphasizes offenders and vulnerabilities rather than raw log spam.
+- Drill-down: Implemented hierarchy with point-level fan-out for overlapping coordinates and jitter when only counts exist.
+- Locking: `mapLocked` respected by controls to avoid auto-reset during analysis.
+
+Operations & Workflow
+- Ingestion: Backend consumes/receives logs from Docker pipeline.
+- Processing: Parse logs, enrich with geolocation, compute metrics/alerts.
+- Serving: Flask endpoints provide data to the UI.
+- Visualization: Leaflet for map, Chart.js for KPIs, Bootstrap dark UI.
+
+Testing & Validation
+- `test_server.py`: Basic tests likely cover endpoint availability and response structures.
+- Manual checks: Drill-down hierarchy, point-level fan-out, breadcrumb navigation, alerts search/sort/filter/pagination, IP details modal.
+
+Usage
+- Start server: `python server.py` (ensure Flask installed; optional `geoip2`).
+- Dashboard: http://localhost:5000/.
+- Interact: Time range and level controls, bubble drill-down, breadcrumb navigation, alerts actions and filters.
+
+Scalability & Deployment
+- Lightweight: Python Flask with minimal dependencies.
+- Portable: Can run behind Docker/Compose; adapts to campus infrastructure.
+- Extensible: Add models or rules for anomaly scoring; enrich alerts with context.
+
+Future Enhancements
+- Consistent per-event payloads (`properties.events`) for point-level details.
+- Legend for bubble colors and severity.
+- Advanced anomaly scoring using ML/GenAI.
+- Role-based access and audit logs.
+
+Appendix: Additional Snippets
+1) `simulator.py` (if used): generates synthetic events.
+"""
+# Pseudocode
+# def simulate():
+#   emit random IPs with lat/lng; write to events_persist.json
+"""
+
+2) Endpoint payload example:
+"""
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [-95.0, 40.0] },
+      "properties": { "city": "Omaha", "count": 12, "events": [] }
+    }
+  ]
+}
+"""
+
+3) Alert item example:
+"""
+{ "time": "2025-11-28T10:12:00Z", "ip": "203.0.113.45", "level": "high", "message": "Multiple failed auth attempts" }
+"""
+Mini‑SOC Dashboard: End‑to‑End Project Narrative
+
+Overview
+
+This project is a miniature Security Operations Center (SOC) dashboard designed to ingest simulated security events, aggregate and visualize them across geography, and provide interactive analysis tools for triage. The application is built with a Flask backend and a modern, dark-themed frontend using Bootstrap, Leaflet for mapping, and Chart.js for visual summaries. It aims to demonstrate how raw network telemetry becomes operational intelligence by moving through ingestion, enrichment, aggregation, visualization, and analyst interaction.
+
+Project Goals
+
+The primary goal is to showcase a real-time anomaly and threat analysis workflow. The system surfaces “where” activity is happening, “how much” is occurring, “how risky” it appears, and “what” actions an analyst can take. The result should be presentable: coherent narrative, clear visuals, and interactive elements, all while staying responsive to live updates.
+
+Architecture at a Glance
+
+The project has two major layers:
+1) Backend (Flask): Provides endpoints to ingest and serve aggregated security event data, metrics, and IP information; simulates traffic; exports reports.
+2) Frontend (HTML/CSS/JS): Implements the dashboard UI, the interactive world map, alerts table with pagination and filters, KPI cards, charts, and modals for detail views.
+
+How the Pieces Fit Together
+
+Everything starts with event data. The backend produces or ingests alerts, enriches them with geolocation (via `GeoLite2-City.mmdb`), and exposes structured APIs. The frontend polls these APIs, transforms the responses into layered views (continent → region → country → city → point), and displays both the big picture and drill-down details. Analysts can filter, sort, and act on entities (IPs) directly from the UI, while the map provides spatial context and the alerts table offers temporal and signature context.
+
+Backend Components
+
+Server (`server.py`)
+The Flask app defines endpoints that power the dashboard:
+- `/` renders the main dashboard.
+- `/data` returns map data for a requested level (`continent`, `region`, `country`, `city`, `point`) and time window. At aggregate levels, features contain counts and ratios; at point level, features can include individual events.
+- `/alerts` returns alert records (raw events or aggregated by IP) with support for time range and limits.
+- `/metrics` provides summary counts: total events, blocked events, rates, unique IPs, and threat level distribution.
+- `/ipinfo` returns enriched information about a specific IP, including geolocation, threat level, and any context.
+- `/vulnerabilities` provides top attempted signatures and their counts.
+- `/simulate` drives data generation for demo purposes (when enabled).
+- `/export` allows exporting reports in JSON or CSV for offline analysis.
+
+Events and Enrichment
+Incoming or simulated events are normalized to contain at least a Source IP, timestamp, signature, and coarse threat level. The server enriches these with geolocation, assigns labels used by the map hierarchy (e.g., “North America || United States || Florida”), and computes aggregates such as counts, blocked vs. allowed ratios, and top IPs per area.
+
+Frontend Components
+
+Templates (`templates/base.html`, `templates/dashboard.html`)
+The base template defines the app chrome: header, sidebar, tab navigation, and global scripts. The dashboard template contains three main tab panes:
+- Threat Map: The interactive map with level selector, refresh controls, breadcrumb, and KPI/Chart cards.
+- Alert Analysis: The alerts table with search, sort, level filter, and pagination, plus side panels for threat summaries, top vulnerabilities, and top offending IPs.
+- Stats: A straightforward page summarizing network statistics and distributions.
+
+Styles (`static/css/style.css`)
+The stylesheet implements a compact, high-contrast dark theme. Key goals are reducing whitespace, making tables dense but readable, and ensuring hover/selection has clear affordances. The “Source IP” column in alerts is visually emphasized. Page-specific classes (`page-alerts`, `page-stats`, `page-map`) provide subtle background and hover distinctions when the user switches tabs. Map bubble count labels are tuned for legibility, and the drill-status banner is kept sticky at the top to orient the user when drilling into the map.
+
+Mapping (`static/js/map.js`)
+The map uses Leaflet with a dark tile set. The data pipeline renders aggregated bubbles for continent/region/country/city and individual points for the “All Points” level.
+
+- Level Selection & Drill‑Down: Users begin at “Continent,” centered on North America for a presentable initial view. Clicking a bubble drills down through levels, updating the breadcrumb and drill status. Returning to the Map tab respects the current state unless explicitly reset.
+
+- Bubble Rendering: Aggregate bubbles scale with event counts. Color encodes allowed vs. blocked ratio (blue for allowed‑heavy, red for blocked‑heavy). At closer zooms, bubble tooltips show detailed labels with friendly separators (“North America › United States › Florida”), counts, blocked numbers, top IPs, and severity. A concise label is used at far zooms to reduce clutter.
+
+- Point Rendering: At the point level, individual events are rendered as circle markers: red for blocked, teal for allowed. When raw flags are missing, a light heuristic infers blocked (e.g., high severity or block/deny signatures). A “Blocked only” checkbox in the sidebar filters both point-level markers and aggregates instantly.
+
+- Stability & UX: The map avoids auto‑resetting level after user selection by locking when the user chooses a specific level. Size invalidation ensures the canvas fits during tab switches and resizes. Count labels scale by zoom to prevent overlap and keep numbers readable.
+
+Alerts (`static/js/alerts.js`)
+The Alert Analysis tab presents a dense, paginated table of events or IP aggregates with filters:
+
+- Pagination & Density: The table paginates to 17 rows per page by design to maintain page-level scrolling while keeping the table compact. Sorting supports time, IP, severity, and count. A text search filters the current dataset, and a level filter restricts rows to High/Medium/Low.
+
+- Source IP Emphasis: The Source IP column header and cells carry an `ip-col` class styled with a darker background and contrasting text to anchor the analyst’s focus.
+
+- Actions: Each row includes an Actions dropdown: view details (which opens instantly with a loading spinner and fills when IP data arrives), locate source (centers the map to the approximate location), block/allow (optimistic UI badges to reflect an analyst decision).
+
+Side Panels
+
+Threat Level Summary cards show counts per High/Medium/Low within the current window. “Top Vulnerabilities” lists the most frequent attempted signatures. “Top Offending IPs” sorts by event count and shows their threat level badges. These panels refresh alongside alerts to stay current.
+
+KPI Cards and Charts (`static/js/map.js`, Chart.js)
+
+The map tab includes KPI cards for total events, blocked, block rate, and unique IPs, updated from `/metrics`. A doughnut chart displays threat level distribution. These provide immediate context before drilling down or inspecting specific alerts.
+
+IP Details Modal (`static/js/alerts.js`)
+
+Clicking a Source IP opens a modal with a Summary panel (network & geo information, threat level, risk score, sophistication, total events, attack types), Findings (top, relevant context pulled from threat actor information or synthesized when sparse), Recommendations (tailored by threat level), and Raw Data. The modal opens immediately with a spinner to eliminate perceived delay, then populates content on fetch completion.
+
+Data Flow Narrative
+
+1) Generation & Ingestion: The simulator emits events mimicking brute force attempts, DNS anomalies, botnet communication, and VPN anomalies. `server.py` ingests or generates these and normalizes fields.
+2) Enrichment & Aggregation: Events are enriched with geolocation and grouped by hierarchy. Aggregations compute counts, blocked/allowed ratios, and top IPs.
+3) Serving APIs: The backend provides `/data` for map layers, `/alerts` for tables, `/metrics` for KPIs and charts, and `/ipinfo` for detail enrichment.
+4) Frontend Rendering: The map renders aggregate bubbles first (present the big picture), then drills down to detail where needed. Alerts tables provide linear context for triage. Modals and side panels supply depth.
+5) Analyst Interaction: Filters (time range, suspicious only, blocked only), sorting, search, and actions allow the analyst to focus and respond.
+
+User Experience Decisions
+
+The project intentionally minimizes inner scrolling in favor of page-level scrolling for the alerts table. Typography and spacing are compacted to increase data density without sacrificing clarity. Critical columns are visually emphasized. The map keeps a coherent initial continental view so the audience immediately sees “something” on load, then invites drill‑down. Tooltips adapt by zoom level to keep the interface readable.
+
+Presentation Flow Guide
+
+Begin with the Overview: explain the goal of turning raw telemetry into operational insight. Show the landing state: the continent view centered on North America. Point out the KPI cards and the threat level chart to establish volume and composition.
+
+Next, demonstrate Drill‑Down: click a bubble to move from continent to region/country/city, narrating how counts and ratios provide context. Mention the breadcrumb and drill status banner as orientation aids. Toggle “Blocked only” to highlight where policy enforcement is occurring and how that changes the spatial picture.
+
+Then, move to Alerts: switch to the Alert Analysis tab and show how the table supports triage—search, sort, filter by threat level—and how pagination keeps the page clean. Open a few IP details to demonstrate the modal’s summary, findings, and recommendations sections.
+
+Finally, return to KPIs: connect changes in the map/alerts to KPI movements. Explain how an analyst might use the Export menu to produce a report for incident tracking.
+
+Sections for Pictures
+
+Screenshots to include during presentation:
+
+• Landing Map View (Continent): A wide screenshot showing the North America bubble, KPI cards, and the severity chart. Place a caption explaining the immediate situational awareness provided on load.
+
+• Drill‑Down (Country/City): A screenshot after clicking a bubble, with breadcrumb visible. Caption: “Hierarchical drill‑down from continent to city reveals localized hotspots.”
+
+• Point View (All Points): A screenshot showing individual red (blocked) and teal (allowed) points. Caption: “Point-level inspection surfaces specific IPs and signatures.”
+
+• Alert Analysis Table: A screenshot highlighting the Source IP column and actions menu. Caption: “Dense, paginated table for rapid triage with instant details modal.”
+
+• IP Details Modal: A screenshot of the modal with Summary/Findings/Recommendations tabs. Caption: “Contextual detail enables confident decisions.”
+
+Sections for Code Snippets
+
+Suggested snippets to paste into slides or documentation:
+
+Map bubble rendering (aggregate):
+— Show the logic that sets bubble radius by count and color by allowed/blocked ratio, and the tooltip that adapts with zoom.
+
+Point rendering with blocked inference:
+— Show how individual events are colored and how the heuristic determines blocked when explicit flags are missing.
+
+Alerts table rendering:
+— Show the header construction with the emphasized Source IP column and the actions dropdown wiring.
+
+IP details modal:
+— Show the immediate spinner open and the subsequent HTML construction once the IP info fetch completes.
+
+Export endpoint usage:
+— Show the small function in `base.html` that opens the export route with the selected time range.
+
+Operations and Live Demo Tips
+
+- Keep the app running and let the data refresh naturally every ~7 seconds; mention live updates as you present.
+- Switch tabs slowly to let the audience see state changes; point out when the map is “locked” after a deep drill to respect user intent.
+- Use the “Suspicious only” and “Blocked only” toggles to narrate different perspectives (policy vs. anomaly).
+- If the audience asks about scale, mention that bubble sizing and shading adapt to counts to maintain readability.
+
+Closing Remarks
+
+This Mini‑SOC Dashboard combines data engineering and UX decisions to create a compelling, live demonstration of security situational awareness. It moves from aggregated geography to specific IPs and recommendations with minimal friction, showcasing how analysts can orient, inspect, and act within a single, consistent interface.

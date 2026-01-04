@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- Tab content -->
+<div class="tab-content">
+  <!-- Map Tab -->
+  <div class="tab-pane fade show active" id="mapTab" role="tabpanel">
+    <div class="row gx-3">
+      <div class="col-8 d-flex flex-column">
+        <div class="card mb-3 map-card flex-grow-1">
+          <div class="card-body p-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div class="d-flex gap-2 align-items-center">
+                <label for="mapLevelSelect" class="mb-0 small text-muted">Level</label>
+                <select id="mapLevelSelect" class="form-select form-select-sm">
+                  <option value="continent" selected>Continent</option>
+                  <option value="region">Country/Region</option>
+                  <option value="city">City</option>
+                  <option value="point">All Points</option>
+                </select>
+                <div class="btn-group" role="group" aria-label="map controls">
+                  <button id="refreshMap" class="btn btn-sm btn-outline-primary btn-map-control">Refresh</button>
+                  <button id="showAllPoints" class="btn btn-sm btn-outline-primary btn-map-control">Show All Points</button>
+                </div>
+              </div>
+              <div class="small text-muted">Time window: <span id="kpiWindow">15m</span></div>
+            </div>
+            <div class="map-container">
+              <div id="map" class="map-canvas"></div>
+            </div>
+            <div id="breadcrumb" class="mt-2 small text-muted">Click bubbles to drill down</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-4">
+        <div class="card mb-3 p-2">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">KPIs</h6>
+            <small class="text-muted">Window: <span id="kpiWindow">15m</span></small>
+          </div>
+          <div class="d-flex gap-2">
+            <div class="kpi-card flex-fill text-center">
+              <div class="kpi-value" id="kpi-total">0</div>
+              <div class="kpi-label">Total events</div>
+            </div>
+            <div class="kpi-card flex-fill text-center">
+              <div class="kpi-value" id="kpi-blocked">0</div>
+              <div class="kpi-label">Blocked</div>
+            </div>
+            <div class="kpi-card flex-fill text-center">
+              <div class="kpi-value" id="kpi-block-rate">0%</div>
+              <div class="kpi-label">Block rate</div>
+            </div>
+            <div class="kpi-card flex-fill text-center">
+              <div class="kpi-value" id="kpi-unique-ips">0</div>
+              <div class="kpi-label">Unique IPs</div>
+            </div>
+          </div>
+        </div>
+
+   <!---      <div class="card mb-3 p-2">-->
+        <!--- <h6 class="mb-2">Events Over Time</h6>
+          <canvas id="chartEvents" height="120"></canvas>
+        </div>
+      -->
+
+        <div class="card mb-3 p-2">
+          <h6 class="mb-2">Severity Breakdown</h6>
+          <canvas id="severityChart" height="140"></canvas>
+        </div>
+
+        <div class="card p-2">
+          <h6 class="mb-2">Threat Actors / IOCs</h6>
+          <div id="threatActorsList" class="small mb-2"></div>
+          <h6 class="mb-1 small">IOCs</h6>
+          <ul id="iocList" class="list-unstyled small mb-0"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts Tab -->
+  <div class="tab-pane fade" id="alertsTab" role="tabpanel">
+    <div class="row">
+      <div class="col-md-8 d-flex flex-column">
+        <div class="card alerts-card h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <h5 class="mb-0">Security Alerts</h5>
+              <small class="text-muted">Real-time network anomaly detection</small>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <input id="alertsSearch" class="form-control form-control-sm" placeholder="Search IP, signature..." style="min-width:220px;" />
+              <select id="alertsSort" class="form-select form-select-sm">
+                <option value="time_desc">Time (newest)</option>
+                <option value="time_asc">Time (oldest)</option>
+                <option value="ip">IP</option>
+                <option value="severity">Severity</option>
+                <option value="count">Count</option>
+              </select>
+              <select id="alertsLevelFilter" class="form-select form-select-sm" title="Filter by threat level">
+                <option value="all" selected>All Levels</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <select id="alertViewMode" class="form-select form-select-sm">
+                <option value="raw" selected>Raw Events</option>
+                <option value="aggregate">Aggregated by IP</option>
+              </select>
+              <button id="clearAlerts" class="btn btn-outline-danger btn-sm">Clear</button>
+            </div>
+          </div>
+          <div class="card-body p-0 d-flex">
+            <div id="alertsContainer" class="flex-fill"></div>
+          </div>
+          <div class="card-footer d-flex justify-content-between align-items-center">
+            <div id="alertsPagination" class="btn-group">
+              <button id="alertsFirst" class="btn btn-sm btn-outline-secondary">First</button>
+              <button id="alertsPrev" class="btn btn-sm btn-outline-secondary">Prev</button>
+              <span class="mx-2 align-middle">Page <input id="alertsPageInput" type="number" min="1" value="1" style="width:60px; display:inline-block;" /> of <span id="alertsTotalPages">1</span></span>
+              <button id="alertsNext" class="btn btn-sm btn-outline-secondary">Next</button>
+              <button id="alertsLast" class="btn btn-sm btn-outline-secondary">Last</button>
+            </div>
+            <div class="small text-muted">Showing results for current window</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-4 d-flex flex-column">
+        <div class="card mb-3">
+          <div class="card-header">
+            <h6 class="mb-0">Threat Level Summary</h6>
+          </div>
+          <div class="card-body p-2">
+            <div class="d-flex gap-2">
+              <div class="kpi-card flex-fill text-center bg-danger-subtle">
+                <div class="kpi-value text-danger" id="kpi-high-threats">0</div>
+                <div class="kpi-label">High</div>
+              </div>
+              <div class="kpi-card flex-fill text-center bg-warning-subtle">
+                <div class="kpi-value text-warning" id="kpi-medium-threats">0</div>
+                <div class="kpi-label">Medium</div>
+              </div>
+              <div class="kpi-card flex-fill text-center bg-success-subtle">
+                <div class="kpi-value text-success" id="kpi-low-threats">0</div>
+                <div class="kpi-label">Low</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3 flex-fill">
+          <div class="card-header">
+            <h6 class="mb-0">Top Vulnerabilities</h6>
+            <small class="text-muted">Past 15 minutes</small>
+          </div>
+          <div class="card-body p-2 overflow-auto" style="max-height:220px;">
+            <div id="vulnerabilitiesContainer">
+              <!-- Vulnerabilities will be populated here -->
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header">
+            <h6 class="mb-0">Top Offending IPs</h6>
+            <small class="text-muted">Threat Level Analysis</small>
+          </div>
+          <div class="card-body p-2">
+            <div id="topOffendersContainer">
+              <!-- Top offenders will be populated here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>  
+  </div>
+
+  <!-- Stats Tab -->
+  <div class="tab-pane fade" id="statsTab" role="tabpanel">
+    <div class="row gx-3">
+      <div class="col-6">
+        <div class="card mb-3">
+          <div class="card-header">
+            <h5 class="mb-0">Network Statistics</h5>
+          </div>
+          <div class="card-body">
+            <div class="row text-center">
+              <div class="col-6">
+                <div class="border-end">
+                  <h3 class="text-primary mb-0" id="stats-total-events">0</h3>
+                  <small class="text-muted">Total Events</small>
+                </div>
+              </div>
+              <div class="col-6">
+                <h3 class="text-danger mb-0" id="stats-blocked-events">0</h3>
+                <small class="text-muted">Blocked Events</small>
+              </div>
+            </div>
+            <hr>
+            <div class="row text-center">
+              <div class="col-6">
+                <div class="border-end">
+                  <h4 class="text-info mb-0" id="stats-unique-ips">0</h4>
+                  <small class="text-muted">Unique Source IPs</small>
+                </div>
+              </div>
+              <div class="col-6">
+                <h4 class="text-success mb-0" id="stats-blocked-ratio">0%</h4>
+                <small class="text-muted">Block Rate</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Top Attack Signatures</h5>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Signature</th>
+                    <th class="text-end">Count</th>
+                    <th class="text-end">%</th>
+                  </tr>
+                </thead>
+                <tbody id="statsSignatureTable">
+                  <tr>
+                    <td colspan="3" class="text-center text-muted">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-6">
+        <div class="card mb-3">
+          <div class="card-header">
+            <h5 class="mb-0">Geographic Distribution</h5>
+          </div>
+          <div class="card-body">
+            <canvas id="statsLocationChart" height="200"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Attack Types</h5>
+          </div>
+          <div class="card-body">
+            <canvas id="statsAttackChart" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- IP Details Modal -->
+<div class="modal fade" id="ipDetailsModal" tabindex="-1" aria-labelledby="ipDetailsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="ipDetailsModalLabel">IP Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="ipDetailsContent">
+        <!-- Content will be populated by JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
